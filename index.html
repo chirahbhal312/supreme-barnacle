@@ -2,15 +2,14 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Babylon.js AR Model Placer (AR UI)</title>
+  <title>Babylon.js AR Model Placer (3D Buttons)</title>
   <script src="https://cdn.babylonjs.com/babylon.js"></script>
   <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
   <script src="https://cdn.babylonjs.com/xr/babylon.webxr.min.js"></script>
+  <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
   <style>
     html, body { margin: 0; overflow: hidden; height: 100%; }
     canvas { width: 100%; height: 100%; display: block; }
-    
-    /* Initial screen buttons */
     #enter-ar {
       position: absolute;
       bottom: 20px;
@@ -25,42 +24,10 @@
       cursor: pointer;
       z-index: 10;
     }
-    
-    /* AR UI buttons (hidden by default) */
-    .ar-ui {
-      position: fixed;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      display: none;
-      flex-direction: row;
-      gap: 10px;
-      z-index: 100;
-    }
-    
-    .ar-ui-button {
-      background-color: rgba(13, 110, 253, 0.8);
-      color: white;
-      border: none;
-      padding: 12px 20px;
-      font-size: 16px;
-      border-radius: 8px;
-      cursor: pointer;
-      backdrop-filter: blur(10px);
-    }
-    
-    #place-cat-ui { background-color: rgba(255, 107, 107, 0.8); }
-    #place-dog-ui { background-color: rgba(81, 207, 102, 0.8); }
   </style>
 </head>
 <body>
   <button id="enter-ar">Enter AR</button>
-  
-  <div class="ar-ui">
-    <button id="place-cat-ui" class="ar-ui-button">Place Cat</button>
-    <button id="place-dog-ui" class="ar-ui-button">Place Dog</button>
-  </div>
-  
   <canvas id="renderCanvas"></canvas>
 
   <script>
@@ -70,6 +37,7 @@
     let xrHelper = null;
     let selectedModel = null;
     let hitTest = null;
+    let catButton, dogButton;
 
     const createScene = async () => {
       const scene = new BABYLON.Scene(engine);
@@ -77,44 +45,35 @@
       const camera = new BABYLON.ArcRotateCamera("camera", Math.PI / 2, Math.PI / 4, 3, BABYLON.Vector3.Zero(), scene);
       camera.attachControl(canvas, true);
 
-      const xr = await scene.createDefaultXRExperienceAsync({
-        uiOptions: { 
-          sessionMode: "immersive-ar", 
-          referenceSpaceType: "local" 
-        },
+      xrHelper = await scene.createDefaultXRExperienceAsync({
+        uiOptions: { sessionMode: "immersive-ar", referenceSpaceType: "local" },
         optionalFeatures: true
       });
-      xrHelper = xr;
-
-      // Enable DOM overlay if supported
-      if (xr.baseExperience.featuresManager.enableFeature(BABYLON.WebXRDOMOverlay, "root", {
-        element: document.querySelector(".ar-ui"),
-        displayMode: "floating"
-      })) {
-        console.log("DOM overlay supported");
-      } else {
-        console.log("DOM overlay not supported");
-      }
 
       // Initialize hit test
-      const featuresManager = xr.baseExperience.featuresManager;
+      const featuresManager = xrHelper.baseExperience.featuresManager;
       hitTest = featuresManager.enableFeature(BABYLON.WebXRHitTest, 'latest', {
-        xrInput: xr.input
+        xrInput: xrHelper.input
       });
 
+      // Create 3D UI manager
+      const guiManager = new BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
+
       // Handle AR session state changes
-      xr.baseExperience.onStateChangedObservable.add((state) => {
-        const arUI = document.querySelector(".ar-ui");
+      xrHelper.baseExperience.onStateChangedObservable.add((state) => {
         if (state === BABYLON.WebXRState.IN_XR) {
-          arUI.style.display = "flex";
+          create3DButtons(scene);
         } else {
-          arUI.style.display = "none";
+          if (catButton) catButton.dispose();
+          if (dogButton) dogButton.dispose();
+          catButton = null;
+          dogButton = null;
           selectedModel = null;
         }
       });
 
       // Handle tap/click to place model
-      xr.input.onControllerAddedObservable.add((controller) => {
+      xrHelper.input.onControllerAddedObservable.add((controller) => {
         controller.onMotionControllerInitObservable.add((motionController) => {
           const triggerComponent = motionController.getComponent("xr-standard-trigger");
           if (triggerComponent) {
@@ -129,10 +88,60 @@
 
       // Also handle screen tap for mobile AR
       canvas.addEventListener("pointerdown", (evt) => {
-        if (xr.baseExperience.state === BABYLON.WebXRState.IN_XR && selectedModel) {
+        if (xrHelper.baseExperience.state === BABYLON.WebXRState.IN_XR && selectedModel) {
           placeModelAtHit();
         }
       });
+
+      function create3DButtons(scene) {
+        // Create a plane for the buttons panel
+        const panel = BABYLON.MeshBuilder.CreatePlane("buttonPanel", { size: 1 }, scene);
+        panel.position = new BABYLON.Vector3(0, 0, -1.5);
+        
+        // Create advanced dynamic texture for the panel
+        const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(panel);
+        
+        // Create cat button
+        const catBtn = BABYLON.GUI.Button.CreateSimpleButton("catBtn", "Place Cat");
+        catBtn.width = 0.4;
+        catBtn.height = 0.2;
+        catBtn.color = "white";
+        catBtn.background = "#ff6b6b";
+        catBtn.cornerRadius = 10;
+        catBtn.left = -0.25;
+        catBtn.onPointerUpObservable.add(() => {
+          selectedModel = 'cat';
+          catBtn.background = "#ff0000";
+          dogBtn.background = "#51cf66";
+        });
+        advancedTexture.addControl(catBtn);
+        catButton = panel;
+
+        // Create dog button
+        const dogBtn = BABYLON.GUI.Button.CreateSimpleButton("dogBtn", "Place Dog");
+        dogBtn.width = 0.4;
+        dogBtn.height = 0.2;
+        dogBtn.color = "white";
+        dogBtn.background = "#51cf66";
+        dogBtn.cornerRadius = 10;
+        dogBtn.left = 0.25;
+        dogBtn.onPointerUpObservable.add(() => {
+          selectedModel = 'dog';
+          dogBtn.background = "#00ff00";
+          catBtn.background = "#ff6b6b";
+        });
+        advancedTexture.addControl(dogBtn);
+        dogButton = panel;
+
+        // Make panel face the camera
+        scene.registerBeforeRender(() => {
+          if (xrHelper.baseExperience.state === BABYLON.WebXRState.IN_XR && xrHelper.baseExperience.camera) {
+            const xrCamera = xrHelper.baseExperience.camera;
+            panel.position = xrCamera.position.add(xrCamera.getDirection(BABYLON.Vector3.Forward()).scale(1.5);
+            panel.lookAt(xrCamera.position);
+          }
+        });
+      }
 
       function placeModelAtHit() {
         if (!selectedModel || !hitTest) return;
@@ -176,18 +185,6 @@
         if (xrHelper) {
           xrHelper.baseExperience.enterXRAsync("immersive-ar", "local", xrHelper.renderTarget);
         }
-      });
-
-      document.getElementById("place-cat-ui").addEventListener("click", () => {
-        selectedModel = 'cat';
-        document.getElementById("place-cat-ui").style.backgroundColor = "rgba(255, 107, 107, 1)";
-        document.getElementById("place-dog-ui").style.backgroundColor = "rgba(81, 207, 102, 0.8)";
-      });
-
-      document.getElementById("place-dog-ui").addEventListener("click", () => {
-        selectedModel = 'dog';
-        document.getElementById("place-dog-ui").style.backgroundColor = "rgba(81, 207, 102, 1)";
-        document.getElementById("place-cat-ui").style.backgroundColor = "rgba(255, 107, 107, 0.8)";
       });
     });
 
