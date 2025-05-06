@@ -5,6 +5,7 @@
   <title>Babylon.js AR Model Selector</title>
   <script src="https://cdn.babylonjs.com/babylon.js"></script>
   <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+  <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
   <script src="https://cdn.babylonjs.com/xr/babylon.webxr.min.js"></script>
   <style>
     html, body { margin: 0; overflow: hidden; height: 100%; }
@@ -33,35 +34,13 @@
     const canvas = document.getElementById("renderCanvas");
     const engine = new BABYLON.Engine(canvas, true);
     let xrHelper = null;
-    let selectedModel = null; // "cat" or "dog"
+    let selectedModel = null;
 
     const createScene = async () => {
       const scene = new BABYLON.Scene(engine);
       const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
-      const camera = new BABYLON.ArcRotateCamera("camera", Math.PI / 2, Math.PI / 4, 3, BABYLON.Vector3.Zero(), scene);
-      camera.attachControl(canvas, true);
 
-      // Create 3D button mesh
-      function createButton(label, position, modelType) {
-        const plane = BABYLON.MeshBuilder.CreatePlane(`button_${label}`, { size: 0.2 }, scene);
-        plane.position = position;
-
-        const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(plane);
-        const button = BABYLON.GUI.Button.CreateSimpleButton(label, label);
-        button.width = 1;
-        button.height = 0.4;
-        button.color = "white";
-        button.fontSize = 80;
-        button.background = "#0d6efd";
-        advancedTexture.addControl(button);
-
-        button.onPointerUpObservable.add(() => {
-          selectedModel = modelType;
-          console.log(`Selected: ${selectedModel}`);
-        });
-      }
-
-      // Start AR
+      // Init XR
       xrHelper = await scene.createDefaultXRExperienceAsync({
         uiOptions: { sessionMode: "immersive-ar", referenceSpaceType: "local" },
         optionalFeatures: true
@@ -76,15 +55,15 @@
         if (state === BABYLON.WebXRState.IN_XR) {
           const xrCamera = xrHelper.baseExperience.camera;
 
-          // Place buttons floating in front of user
           const forward = xrCamera.getDirection(BABYLON.Vector3.Forward()).scale(1);
-          const basePos = xrCamera.position.add(forward);
+          const buttonBase = xrCamera.position.add(forward);
 
-          createButton("Cat", basePos.add(new BABYLON.Vector3(-0.3, 0, 0)), "cat");
-          createButton("Dog", basePos.add(new BABYLON.Vector3(0.3, 0, 0)), "dog");
+          // Create AR buttons
+          createButton("Cat", buttonBase.add(new BABYLON.Vector3(-0.3, 0, 0)), "cat");
+          createButton("Dog", buttonBase.add(new BABYLON.Vector3(0.3, 0, 0)), "dog");
 
-          // Tapping the screen places model
-          scene.onPointerDown = (evt, pickInfo) => {
+          // Tap to place selected model
+          scene.onPointerDown = () => {
             if (!selectedModel) return;
 
             hitTest.onHitTestResultObservable.addOnce((results) => {
@@ -105,12 +84,32 @@
                   }
                 });
 
-                selectedModel = null; // Reset after placing
+                selectedModel = null;
               }
             });
           };
         }
       });
+
+      function createButton(label, position, modelType) {
+        const plane = BABYLON.MeshBuilder.CreatePlane(`btn_${label}`, { size: 0.2 }, scene);
+        plane.position = position;
+        plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+
+        const texture = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(plane);
+        const button = BABYLON.GUI.Button.CreateSimpleButton(label, label);
+        button.width = 1;
+        button.height = 0.4;
+        button.color = "white";
+        button.fontSize = 80;
+        button.background = "#0d6efd";
+        texture.addControl(button);
+
+        button.onPointerUpObservable.add(() => {
+          selectedModel = modelType;
+          console.log("Selected model:", modelType);
+        });
+      }
 
       return scene;
     };
