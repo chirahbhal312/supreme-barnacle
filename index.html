@@ -38,7 +38,7 @@
 
     const createScene = async () => {
       const scene = new BABYLON.Scene(engine);
-      const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+      new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
 
       // Init XR
       xrHelper = await scene.createDefaultXRExperienceAsync({
@@ -51,18 +51,31 @@
         offsetRay: new BABYLON.Ray(new BABYLON.Vector3(0, 0, 0), new BABYLON.Vector3(0, 0, -1)),
       });
 
+      // Placement cursor (optional visual aid)
+      const cursor = BABYLON.MeshBuilder.CreateTorus("cursor", { diameter: 0.1, thickness: 0.005 }, scene);
+      cursor.isVisible = false;
+      cursor.rotation.x = Math.PI / 2;
+
+      hitTest.onHitTestResultObservable.add((results) => {
+        if (results.length) {
+          const pos = results[0].transformationMatrix.getTranslation();
+          cursor.position = pos;
+          cursor.isVisible = true;
+        } else {
+          cursor.isVisible = false;
+        }
+      });
+
       xrHelper.baseExperience.onStateChangedObservable.add((state) => {
         if (state === BABYLON.WebXRState.IN_XR) {
           const xrCamera = xrHelper.baseExperience.camera;
-
           const forward = xrCamera.getDirection(BABYLON.Vector3.Forward()).scale(1);
           const buttonBase = xrCamera.position.add(forward);
 
-          // Create AR buttons
           createButton("Cat", buttonBase.add(new BABYLON.Vector3(-0.3, 0, 0)), "cat");
           createButton("Dog", buttonBase.add(new BABYLON.Vector3(0.3, 0, 0)), "dog");
 
-          // Tap to place selected model
+          // Tap to place model
           scene.onPointerDown = () => {
             if (!selectedModel) return;
 
