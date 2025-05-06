@@ -1,143 +1,161 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Babylon.js AR Model Selector</title>
-  <script src="https://cdn.babylonjs.com/babylon.js"></script>
-  <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-  <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
-  <script src="https://cdn.babylonjs.com/xr/babylon.webxr.min.js"></script>
+  <title>Three.js AR Model Selector</title>
   <style>
-    html, body { margin: 0; overflow: hidden; height: 100%; }
-    canvas { width: 100%; height: 100%; display: block; }
-    #enter-ar {
+    body { margin: 0; overflow: hidden; }
+    #ar-button {
       position: absolute;
       bottom: 20px;
       left: 50%;
       transform: translateX(-50%);
+      padding: 12px 20px;
       background-color: #0d6efd;
       color: white;
-      border: none;
-      padding: 12px 20px;
       font-size: 16px;
+      border: none;
       border-radius: 8px;
       cursor: pointer;
       z-index: 10;
     }
+    .model-button {
+      position: absolute;
+      bottom: 80px;
+      padding: 10px 16px;
+      background-color: #0d6efd;
+      color: white;
+      font-size: 14px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      z-index: 10;
+    }
+    #cat-button { left: 20px; }
+    #dog-button { right: 20px; }
   </style>
 </head>
 <body>
-  <button id="enter-ar">Enter AR</button>
-  <canvas id="renderCanvas"></canvas>
+  <button id="ar-button">Start AR</button>
+  <button id="cat-button" class="model-button">Cat</button>
+  <button id="dog-button" class="model-button">Dog</button>
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.module.js';
+    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.150.1/examples/jsm/webxr/ARButton.js';
+    import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.150.1/examples/jsm/loaders/GLTFLoader.js';
 
-  <script>
-    const canvas = document.getElementById("renderCanvas");
-    const engine = new BABYLON.Engine(canvas, true);
-    let xrHelper = null;
+    let camera, scene, renderer;
+    let controller;
+    let reticle;
+    let hitTestSource = null;
+    let hitTestSourceRequested = false;
     let selectedModel = null;
+    const loader = new GLTFLoader();
 
-    const createScene = async () => {
-      const scene = new BABYLON.Scene(engine);
-      new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+    init();
+    animate();
 
-      // Init XR
-      xrHelper = await scene.createDefaultXRExperienceAsync({
-        uiOptions: { sessionMode: "immersive-ar", referenceSpaceType: "local" },
-        optionalFeatures: true
+    function init() {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+
+      scene = new THREE.Scene();
+
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
+      container.appendChild(renderer.domElement);
+
+      document.body.appendChild(ARButton.createButton(renderer, { requiredFeatures: ['hit-test'] }));
+
+      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+      light.position.set(0.5, 1, 0.25);
+      scene.add(light);
+
+      reticle = new THREE.Mesh(
+        new THREE.RingGeometry(0.1, 0.11, 32).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: 0x0d6efd })
+      );
+      reticle.matrixAutoUpdate = false;
+      reticle.visible = false;
+      scene.add(reticle);
+
+      controller = renderer.xr.getController(0);
+      controller.addEventListener('select', onSelect);
+      scene.add(controller);
+
+      document.getElementById('cat-button').addEventListener('click', () => {
+        selectedModel = 'cat.glb';
       });
 
-      const featureManager = xrHelper.baseExperience.featuresManager;
-      const hitTest = featureManager.enableFeature(BABYLON.WebXRHitTest.Name, "latest", {
-        offsetRay: new BABYLON.Ray(new BABYLON.Vector3(0, 0, 0), new BABYLON.Vector3(0, 0, -1)),
+      document.getElementById('dog-button').addEventListener('click', () => {
+        selectedModel = 'dog.glb';
       });
 
-      // Placement cursor (optional visual aid)
-      const cursor = BABYLON.MeshBuilder.CreateTorus("cursor", { diameter: 0.1, thickness: 0.005 }, scene);
-      cursor.isVisible = false;
-      cursor.rotation.x = Math.PI / 2;
+      window.addEventListener('resize', onWindowResize);
+    }
 
-      hitTest.onHitTestResultObservable.add((results) => {
-        if (results.length) {
-          const pos = results[0].transformationMatrix.getTranslation();
-          cursor.position = pos;
-          cursor.isVisible = true;
-        } else {
-          cursor.isVisible = false;
-        }
-      });
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
 
-      xrHelper.baseExperience.onStateChangedObservable.add((state) => {
-        if (state === BABYLON.WebXRState.IN_XR) {
-          const xrCamera = xrHelper.baseExperience.camera;
-          const forward = xrCamera.getDirection(BABYLON.Vector3.Forward()).scale(1);
-          const buttonBase = xrCamera.position.add(forward);
-
-          createButton("Cat", buttonBase.add(new BABYLON.Vector3(-0.3, 0, 0)), "cat");
-          createButton("Dog", buttonBase.add(new BABYLON.Vector3(0.3, 0, 0)), "dog");
-
-          // Tap to place model
-          scene.onPointerDown = () => {
-            if (!selectedModel) return;
-
-            hitTest.onHitTestResultObservable.addOnce((results) => {
-              if (results.length) {
-                const hit = results[0];
-                const pos = hit.transformationMatrix.getTranslation();
-
-                const file = selectedModel === "cat" ? "cat.glb" : "dog.glb";
-                const scale = selectedModel === "cat"
-                  ? new BABYLON.Vector3(0.01, 0.01, 0.01)
-                  : new BABYLON.Vector3(0.0001, 0.0001, 0.0001);
-
-                BABYLON.SceneLoader.ImportMesh("", "", file, scene, (meshes) => {
-                  const model = BABYLON.Mesh.MergeMeshes(meshes, true, true, undefined, false, true);
-                  if (model) {
-                    model.position = pos;
-                    model.scaling = scale;
-                  }
-                });
-
-                selectedModel = null;
-              }
-            });
-          };
-        }
-      });
-
-      function createButton(label, position, modelType) {
-        const plane = BABYLON.MeshBuilder.CreatePlane(`btn_${label}`, { size: 0.2 }, scene);
-        plane.position = position;
-        plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
-
-        const texture = BABYLON.GUI.AdvancedDynamicTexture.CreateForMesh(plane);
-        const button = BABYLON.GUI.Button.CreateSimpleButton(label, label);
-        button.width = 1;
-        button.height = 0.4;
-        button.color = "white";
-        button.fontSize = 80;
-        button.background = "#0d6efd";
-        texture.addControl(button);
-
-        button.onPointerUpObservable.add(() => {
-          selectedModel = modelType;
-          console.log("Selected model:", modelType);
+    function onSelect() {
+      if (reticle.visible && selectedModel) {
+        loader.load(selectedModel, function (gltf) {
+          const model = gltf.scene;
+          model.position.setFromMatrixPosition(reticle.matrix);
+          model.scale.set(0.01, 0.01, 0.01); // Adjust scale as needed
+          scene.add(model);
         });
       }
+    }
 
-      return scene;
-    };
+    function animate() {
+      renderer.setAnimationLoop(render);
+    }
 
-    createScene().then((scene) => {
-      engine.runRenderLoop(() => scene.render());
+    function render(timestamp, frame) {
+      if (frame) {
+        const referenceSpace = renderer.xr.getReferenceSpace();
+        const session = renderer.xr.getSession();
 
-      document.getElementById("enter-ar").addEventListener("click", () => {
-        if (xrHelper) {
-          xrHelper.baseExperience.enterXRAsync("immersive-ar", "unbounded", xrHelper.renderTarget);
+        if (!hitTestSourceRequested) {
+          session.requestReferenceSpace('viewer').then(function (referenceSpace) {
+            session.requestHitTestSource({ space: referenceSpace }).then(function (source) {
+              hitTestSource = source;
+            });
+          });
+
+          session.addEventListener('end', function () {
+            hitTestSourceRequested = false;
+            hitTestSource = null;
+          });
+
+          hitTestSourceRequested = true;
         }
-      });
-    });
 
-    window.addEventListener("resize", () => engine.resize());
+        if (hitTestSource) {
+          const hitTestResults = frame.getHitTestResults(hitTestSource);
+
+          if (hitTestResults.length) {
+            const hit = hitTestResults[0];
+            const pose = hit.getPose(referenceSpace);
+
+            reticle.visible = true;
+            reticle.matrix.fromArray(pose.transform.matrix);
+          } else {
+            reticle.visible = false;
+          }
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
   </script>
 </body>
 </html>
