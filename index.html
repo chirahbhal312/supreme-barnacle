@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>WebXR AR - Two Models</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+      body { margin: 0; overflow: hidden; }
+      canvas { display: block; }
+    </style>
+  </head>
+  <body>
+    <script type="module">
+      import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+      import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+      import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/webxr/ARButton.js';
+
+      let camera, scene, renderer;
+      let controller;
+      let model1, model2;
+
+      init();
+      animate();
+
+      function init() {
+        scene = new THREE.Scene();
+
+        camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.xr.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        document.body.appendChild(ARButton.createButton(renderer, { requiredFeatures: ['hit-test'] }));
+
+        const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+        light.position.set(0.5, 1, 0.25);
+        scene.add(light);
+
+        const loader = new GLTFLoader();
+
+        // Load first model
+        loader.load('cat.glb', function (gltf) {
+          model1 = gltf.scene;
+          model1.scale.set(0.2, 0.2, 0.2);
+        });
+
+        // Load second model
+        loader.load('dog.glb', function (gltf) {
+          model2 = gltf.scene;
+          model2.scale.set(0.2, 0.2, 0.2);
+        });
+
+        controller = renderer.xr.getController(0);
+        controller.addEventListener('select', onSelect);
+        scene.add(controller);
+      }
+
+      function onSelect() {
+        if (model1 && model2) {
+          const clone1 = model1.clone();
+          const clone2 = model2.clone();
+
+          clone1.position.set(0, 0, -0.5); // in front
+          clone2.position.set(0.3, 0, -0.5); // beside the first
+
+          controller.matrix.decompose(clone1.position, clone1.quaternion, clone1.scale);
+          controller.matrix.decompose(clone2.position, clone2.quaternion, clone2.scale);
+
+          scene.add(clone1);
+          scene.add(clone2);
+        }
+      }
+
+      function animate() {
+        renderer.setAnimationLoop(() => {
+          renderer.render(scene, camera);
+        });
+      }
+    </script>
+  </body>
+</html>
